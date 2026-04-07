@@ -1,10 +1,8 @@
 spring:
-  application:
-    name: identityforge
   datasource:
-    url: jdbc:postgresql://localhost:5432/login_db
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: jdbc:postgresql://localhost:5433/identityforge_db
+    username: postgres
+    password: toor
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -13,3 +11,5 @@ spring:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
 server:
   port: 9093
+jwt:
+  secret: ${JWT_SECRET}
