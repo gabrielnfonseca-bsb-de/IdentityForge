@@ -34,4 +34,9 @@ public class PostgresUserRepository implements UserRepositoryPort {
         return jpaRepository.findById(id)
                 .map(UserMapper::toDomain);
     }
+
+    @Override
+    public boolean existsByEmail(String email) {
+        return jpaRepository.existsByEmail(email);
+    }
 }

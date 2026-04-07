@@ -3,7 +3,6 @@ package com.gabriel.identityforge.infrastructure.security;
 import com.gabriel.identityforge.domain.port.out.TokenProviderPort;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -26,8 +25,9 @@ public class JwtProvider implements TokenProviderPort {
         return Jwts.builder()
                 .setSubject(userId.toString())
                 .claim("roles", roles)
+                .claim("type", "access") // 🔥 importante
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 15))
+                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 15)) // 15 min
                 .signWith(secretKey)
                 .compact();
     }
@@ -36,33 +36,34 @@ public class JwtProvider implements TokenProviderPort {
     public String generateRefreshToken(UUID userId) {
         return Jwts.builder()
                 .setSubject(userId.toString())
+                .claim("type", "refresh") // 🔥 importante
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 1000L * 60 * 60 * 24 * 7))
+                .setExpiration(new Date(System.currentTimeMillis() + 1000L * 60 * 60 * 24 * 7)) // 7 dias
                 .signWith(secretKey)
                 .compact();
     }
 
     @Override
     public UUID extractUserId(String token) {
-        Claims claims = Jwts.parserBuilder()
-                .setSigningKey(secretKey)
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
-
+        Claims claims = parseToken(token);
         return UUID.fromString(claims.getSubject());
     }
 
     @Override
     public List<String> extractRoles(String token) {
-        Claims claims = Jwts.parserBuilder()
+        Claims claims = parseToken(token);
+        List<String> roles = claims.get("roles", List.class);
+        return roles != null ? roles : List.of();
+    }
+
+    // 🔥 MÉTODO CENTRALIZADO (evita duplicação)
+    private Claims parseToken(String token) {
+        return Jwts.parserBuilder()
                 .setSigningKey(secretKey)
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
-
-        List<String> roles = claims.get("roles", List.class);
-        return roles != null ? roles : List.of();
     }
+
 }
 

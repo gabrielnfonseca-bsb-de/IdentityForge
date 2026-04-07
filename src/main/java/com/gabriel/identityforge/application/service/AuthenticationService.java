@@ -1,7 +1,9 @@
 package com.gabriel.identityforge.application.service;
 
+import com.gabriel.identityforge.application.dto.request.LoginRequest;
 import com.gabriel.identityforge.application.dto.request.RefreshTokenRequest;
 import com.gabriel.identityforge.application.dto.request.RegisterRequest;
+import com.gabriel.identityforge.application.dto.response.LoginResponse;
 import com.gabriel.identityforge.application.dto.response.RegisterResponse;
 import com.gabriel.identityforge.application.dto.response.TokenResponse;
 import com.gabriel.identityforge.domain.model.User;
@@ -9,8 +11,7 @@ import com.gabriel.identityforge.domain.port.in.LoginUserUseCase;
 import com.gabriel.identityforge.domain.port.in.RefreshTokenUseCase;
 import com.gabriel.identityforge.domain.port.in.RegisterUserUseCase;
 import com.gabriel.identityforge.domain.port.out.*;
-import com.gabriel.identityforge.application.dto.request.LoginRequest;
-import com.gabriel.identityforge.application.dto.response.LoginResponse;
+import com.gabriel.identityforge.infrastructure.messaging.event.UserRegisteredEvent;
 
 import java.util.List;
 import java.util.UUID;
@@ -22,35 +23,43 @@ public class AuthenticationService implements LoginUserUseCase, RefreshTokenUseC
     private final TokenProviderPort tokenProvider;
     private final RefreshTokenRepositoryPort refreshTokenRepository;
     private final AuditLogPort auditLogPort;
+    private final EventPublisherPort eventPublisher;
 
     public AuthenticationService(
             UserRepositoryPort userRepository,
             PasswordHasherPort passwordHasher,
             TokenProviderPort tokenProvider,
             RefreshTokenRepositoryPort refreshTokenRepository,
-            AuditLogPort auditLogPort
+            AuditLogPort auditLogPort, EventPublisherPort eventPublisher
+
     ) {
         this.userRepository = userRepository;
         this.passwordHasher = passwordHasher;
         this.tokenProvider = tokenProvider;
         this.refreshTokenRepository = refreshTokenRepository;
         this.auditLogPort = auditLogPort;
+        this.eventPublisher = eventPublisher;
     }
 
-    @Override
+    // =========================
+    // LOGIN (LEGADO)
+    // =========================
+
     public LoginResponse login(LoginRequest request) {
+
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("Invalid credentials"));
+                .orElseThrow(() -> {
+                    auditLogPort.log(null, "LOGIN_FAILED", "127.0.0.1", "Unknown");
+                    return new RuntimeException("Invalid credentials");
+                });
 
         if (!passwordHasher.matches(request.getPassword(), user.getPasswordHash())) {
+            auditLogPort.log(user.getId(), "LOGIN_FAILED", "127.0.0.1", "Unknown");
             throw new RuntimeException("Invalid credentials");
         }
 
-        try {
-            user.updateLastLogin();
-            userRepository.save(user);
-        } catch (Exception ignored) {
-        }
+        user.updateLastLogin();
+        userRepository.save(user);
 
         List<String> roles = user.getRoles()
                 .stream()
@@ -72,8 +81,20 @@ public class AuthenticationService implements LoginUserUseCase, RefreshTokenUseC
         return new LoginResponse(accessToken, refreshToken);
     }
 
+    // =========================
+    // 🔥 NOVO PADRÃO (USE CASE)
+    // =========================
+    @Override
+    public LoginResponse execute(LoginRequest request) {
+        return login(request); // delega para o método existente
+    }
+
+    // =========================
+    // REFRESH TOKEN
+    // =========================
     @Override
     public TokenResponse refresh(RefreshTokenRequest request) {
+
         String oldToken = request.getRefreshToken();
 
         if (!refreshTokenRepository.isValid(oldToken)) {
@@ -102,27 +123,35 @@ public class AuthenticationService implements LoginUserUseCase, RefreshTokenUseC
         return new TokenResponse(newAccessToken, newRefreshToken);
     }
 
+    // =========================
+    // REGISTER
+    // =========================
     @Override
     public RegisterResponse register(RegisterRequest request) {
-        userRepository.findByEmail(request.getEmail())
-                .ifPresent(user -> {
-                    throw new RuntimeException("Email already registered");
-                });
 
-        String passwordHash = passwordHasher.hash(request.getPassword());
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new RuntimeException("Email já cadastrado");
+        }
 
         User user = new User(
                 UUID.randomUUID(),
                 request.getEmail(),
-                passwordHash,
+                passwordHasher.hash(request.getPassword()),
                 request.getTenantId()
         );
 
         userRepository.save(user);
 
-        return new RegisterResponse(
-                user.getId(),
-                user.getEmail()
+        eventPublisher.publish(
+                "user.registered",
+                new UserRegisteredEvent(
+                        user.getId(),
+                        user.getEmail(),
+                        user.getTenantId(),
+                        java.time.LocalDateTime.now()
+                )
         );
+
+        return new RegisterResponse(user.getId(), user.getEmail());
     }
 }
