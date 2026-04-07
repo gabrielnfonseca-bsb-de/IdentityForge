@@ -42,17 +42,17 @@ This README explains the architecture, the role of each layer, the database desi
 
 ## Project Goal
 
-The main goal of IdentityForge is to provide a clean and extensible authentication module that can serve as the identity layer for larger systems.
+IdentityForge is a **Custom Identity Provider (IdP)** designed to handle authentication, authorization, and identity management in a modular and secure way.
 
-Instead of building a simple login API tightly coupled to the framework, this project separates the business rules from infrastructure concerns such as:
+Instead of relying on external providers (like Auth0 or Keycloak), this project implements its own identity layer, giving full control over:
 
-* database access
-* password hashing
-* JWT generation
-* Kafka publishing
-* HTTP controllers
+* authentication flows
+* token generation
+* multi-tenancy
+* security policies
+* event-driven integrations
 
-This makes the code easier to test, easier to maintain, and easier to evolve.
+The goal is not just to authenticate users, but to build a **secure, extensible identity platform**.
 
 ---
 
@@ -527,37 +527,99 @@ Keeping `tenantId` in the core user model is a strategic decision. It makes mult
 
 ## Security Design
 
-The project uses JWT-based authentication.
+Security is a first-class concern in IdentityForge.
 
-### Access Token
+This project is designed as a **Custom Identity Provider**, which means it must actively defend against common web and authentication attacks.
 
-An access token is generated during login and contains:
+### Built-in Protections
 
-* user identity
-* roles
+The current implementation already helps mitigate several attack vectors:
 
-It is used to access protected endpoints.
+#### 1. Password Exposure
 
-### Refresh Token
+* Passwords are never stored in plain text
+* BCrypt hashing is used
+* Protects against database leaks
 
-A refresh token is generated during login and stored in the database.
+#### 2. Token Forgery
 
-It allows issuing a new access token without re-authenticating with email and password.
+* JWT tokens are signed with a secret key
+* Prevents token tampering
 
-### Why persist refresh tokens
+#### 3. Session Hijacking (Partial)
 
-Persisting refresh tokens allows:
+* Refresh tokens are stored and validated in database
+* Enables revocation and session control
 
-* revocation
-* expiration tracking
-* device tracking
-* stronger control over active sessions
+#### 4. Broken Authentication
 
-### Password Security
+* Invalid credentials are handled generically
+* Avoids leaking sensitive information
 
-Passwords are hashed using BCrypt through the `PasswordHasherPort` abstraction.
+#### 5. Multi-Tenant Data Isolation
 
-This avoids storing raw passwords and keeps hashing logic replaceable.
+* `tenantId` enforces logical separation
+* Prevents cross-tenant data access
+
+#### 6. Audit Logging
+
+* Security events (login, refresh, failures) are logged
+* Enables traceability and forensic analysis
+
+---
+
+## Security Roadmap (Next Steps)
+
+The next phase of the project focuses on strengthening security with formal practices and protections.
+
+### 1. Threat Modeling
+
+We will introduce a **threat model** to systematically identify risks such as:
+
+* authentication bypass
+* token leakage
+* privilege escalation
+* multi-tenant isolation breaches
+
+This will guide future security decisions.
+
+### 2. Input Validation
+
+All incoming data must be validated to prevent malformed or malicious inputs.
+
+Planned improvements:
+
+* stricter DTO validation
+* use of annotations like `@Valid`, `@Email`, `@NotBlank`
+* centralized validation handling
+
+### 3. CSRF Protection
+
+Even though JWT reduces some CSRF risks, protection is still required depending on usage.
+
+Planned improvements:
+
+* enable CSRF protection where applicable
+* evaluate cookie-based vs header-based token strategies
+
+### 4. XSS Protection
+
+Prevent execution of malicious scripts in client interactions.
+
+Planned improvements:
+
+* sanitize inputs
+* enforce proper response encoding
+* apply secure HTTP headers (Content-Security-Policy)
+
+### 5. Security Testing
+
+Introduce security-focused tests such as:
+
+* invalid input fuzzing
+* token manipulation attempts
+* authentication bypass scenarios
+* permission escalation tests
 
 ---
 
